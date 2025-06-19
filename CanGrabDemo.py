@@ -3,6 +3,7 @@ import pygame
 import pymunk
 import pymunk.pygame_util
 import random
+import math
 
 
 def spawn_circle(pos, space):
@@ -39,6 +40,8 @@ def main():
     pymunk.pygame_util.positive_y_is_up = True
     space = pymunk.Space()
     space.gravity = 0, -981
+
+    anchor_pos = (150, 450)
 
     create_boundaries(space, screen.width, screen.height)
 
