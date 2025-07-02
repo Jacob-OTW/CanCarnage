@@ -6,6 +6,8 @@ import pymunk.pygame_util
 import random
 import math
 
+from pymunk.examples.platformer import width
+
 pygame.init()
 screen = pygame.display.set_mode((1000, 700))
 
@@ -31,7 +33,10 @@ class Level:
 
 
 class GameSingleton:
-    def __init__(self):
+    def __init__(self, space, slingshot):
+        self.space = space
+        self.slingshot = slingshot
+
         self.builder_mode_enabled = True
         self.builder_mode_timer = None
         self.builder_mode_max_time = 20 # In seconds
@@ -42,6 +47,7 @@ class GameSingleton:
 
         self.active_level: Level | None = None
         self.level_queue = []
+        self.can_list = []
 
 
     def update(self, slingshot):
@@ -73,16 +79,34 @@ class GameSingleton:
     def next_level(self):
         if len(self.level_queue) == 0:
             self.active_level = None
-        else:
-            self.active_level = self.level_queue.pop(0)
+            return
 
-            self.shooter_mode_enabled = False
-            self.builder_mode_enabled = True
-            self.builder_mode_timer = None
+        self.active_level = self.level_queue.pop(0)
 
-            self.max_ammo = self.active_level.shooter_ammo
-            self.shooter_ammo = self.max_ammo
-            self.builder_mode_max_time = self.active_level.builder_time
+        self.shooter_mode_enabled = False
+        self.builder_mode_enabled = True
+        self.builder_mode_timer = None
+
+        self.max_ammo = self.active_level.shooter_ammo
+        self.shooter_ammo = self.max_ammo
+        self.builder_mode_max_time = self.active_level.builder_time
+
+        for can_body, can_shape in self.can_list:
+            can_body: pymunk.Body
+            # Cursed way of doing it, needed it done fast
+            can_body.__dict__["done_for"] = True
+            self.space.remove(can_body, can_shape)
+
+        self.can_list.clear()
+
+        for ball_body, ball_shape in self.slingshot.dyn_bird_list:
+            self.space.remove(ball_body, ball_shape)
+
+        self.slingshot.dyn_bird_list.clear()
+
+        for i in range(self.active_level.cans):
+            can = spawn_can((screen.width / 2 + random.randint(-150, 150), screen.height / 2), self.space)
+            self.can_list.append(can)
 
     def add_level(self, level):
         self.level_queue.append(level)
@@ -183,12 +207,9 @@ def create_boundaries(space, width, height):
 
 def main():
     clock = pygame.time.Clock()
-    font = pygame.font.SysFont("arial", 32, pygame.font.Font.bold)
+    font = pygame.font.SysFont("arial", 22, pygame.font.Font.bold)
 
     ball_image = pygame.image.load("assets/images/ball.png")
-
-    game = GameSingleton()
-    background_image = pygame.image.load("assets/images/background.png")
 
     pymunk.pygame_util.positive_y_is_up = True
     space = pymunk.Space()
@@ -200,30 +221,36 @@ def main():
 
     animation_group = pygame.sprite.Group()
 
+    game = GameSingleton(space, slingshot)
+    background_image = pygame.image.load("assets/images/background.png")
+    clip_board_image = pygame.image.load("assets/images/clipboard.png")
+    ball_icon_image = pygame.image.load("assets/images/ball.png")
+    clock_image = pygame.image.load("assets/images/clock.png")
+
     options = pymunk.pygame_util.DrawOptions(screen)
-    space.debug_draw(options)
 
     # Mouse dragging variables
     mouse_body = pymunk.Body(body_type=pymunk.Body.KINEMATIC)
     mouse_joint = None
 
-    can_list = []
     can_image = pygame.image.load("assets/images/can.png")
 
-    level_0 = Level(1, 5, 1,
-                    builder_conditions=[Condition(lambda c_list: sum(c[0].position.y < 150 for c in can_list) <= 10, lambda c_list: "Have at most 3x cans touching the floor")],
-                    shooter_conditions=[Condition(lambda c_list: all(c[0].position.y < 0 for c in can_list), lambda c_list: "Shoot all cans off the table")]
+    level_0 = Level(6, 5, 3,
+                    builder_conditions=[Condition(lambda c_list: sum(c[0].position.y < 150 for c in c_list) <= 3, lambda c_list: "Have at most 3x \n cans touching the floor")],
+                    shooter_conditions=[Condition(lambda c_list: all(c[0].position.y < 0 for c in c_list), lambda c_list: "Shoot all cans off the table")]
                     )
     game.add_level(level_0)
 
+    level_1 = Level(10, 5, 5,
+                    builder_conditions=[Condition(lambda c_list: max(c[0].position.y for c in c_list) >= 260, lambda c_list: "Stack 4x cans on \n top of each other")],
+                    shooter_conditions=[Condition(lambda c_list: sum(c[0].position.y < 0 for c in c_list) == 2, lambda c_list: "Leave 2x Cans on the table")]
+                    )
+    game.add_level(level_1)
+
     p2_hand = HelperHand(slingshot.bird_body, animation_group, image="open_hand_red.png", offset_angle=45 + 180)
 
-    p1_hand = None
-    for i in range(game.active_level.cans):
-        can = spawn_can((screen.width / 2 + random.randint(-150, 150), screen.height / 2), space)
-        can_list.append(can)
-        if i == 0:
-            p1_hand = HelperHand(can[0], animation_group)
+    p1_hand = HelperHand(game.can_list[0][0], animation_group)
+
     while True:
         for event in pygame.event.get():
             match event.type:
@@ -270,19 +297,21 @@ def main():
         game.update(slingshot)
         animation_group.update()
 
-        p1_hand.image.set_alpha(127 if game.builder_mode_enabled and game.builder_mode_timer is None else 0)
+        p1_hand.image.set_alpha(127 if game.builder_mode_enabled and game.builder_mode_timer is None and not hasattr(p1_hand.target, "done_for") else 0)
         p2_hand.image.set_alpha(127 if game.shooter_mode_enabled and game.shooter_ammo == game.max_ammo else 0)
 
-        if len(game.level_queue) == 0 and game.active_level is not None:
+        if game.active_level is not None:
             screen.blit(background_image, (0, 0))
             #space.debug_draw(options)
+
+            screen.blit(clip_board_image, (screen.width - clip_board_image.width - 20, 20))
 
             for dyn_body, dyn_circle in slingshot.dyn_bird_list:
                 dyn_body: pymunk.Body
                 rotated_circle = pygame.transform.rotate(ball_image, math.degrees(dyn_body.angle))  # Radians to degrees
                 rect = rotated_circle.get_rect(center=pymunk.pygame_util.to_pygame(dyn_body.position, screen))
                 screen.blit(rotated_circle, rect.topleft)
-            for can_body, can_shape in sorted(can_list, key=lambda c: c[0].position.y):
+            for can_body, can_shape in sorted(game.can_list, key=lambda c: c[0].position.y):
                 can_body: pymunk.Body
                 rotated_can = pygame.transform.rotate(can_image, math.degrees(can_body.angle))  # Radians to degrees
                 rect = rotated_can.get_rect(center=pymunk.pygame_util.to_pygame(can_body.position, screen))
@@ -298,16 +327,22 @@ def main():
             animation_group.draw(screen)
 
             if game.builder_mode_enabled:
-                screen.blit(font.render("Drag block to start timer" if game.get_build_timer() <= 0 else f"Time remaining: {game.get_build_timer():.0f}s", True, (0, 0, 255)), (100, 150))
+                pos = pygame.Vector2(35, 35)
+                centre_offset = (pygame.Vector2(clock_image.size) / 2)
+                screen.blit(clock_image, pos.xy)
+                degree = 0 if game.builder_mode_timer is None else ((game.get_build_timer() / game.builder_mode_max_time) * 360)
+                vec = pygame.Vector2(clock_image.width / 3, 0).rotate(-degree - 90)
+                pygame.draw.line(screen, (90, 23, 26), pos + centre_offset, pos + centre_offset + vec, width=5)
             elif game.shooter_mode_enabled:
-                screen.blit(font.render(
-                    f"Balls remaining: {game.shooter_ammo}",True, (0, 0, 255)), (100, 150))
+                for i in range(game.shooter_ammo):
+                    screen.blit(ball_icon_image, (50 + 20 * i, 50))
 
 
             # Really shouldn't happen
             if game.active_level is not None:
                 for i, condition in enumerate(game.active_level.builder_conditions if game.builder_mode_enabled else game.active_level.shooter_conditions):
-                    screen.blit(font.render(condition.text_cb(can_list) + ("" if condition.check(can_list) else "   X"), True, (0, 255, 0) if condition.check(can_list) else (255, 0, 0)), (25, 25 + 50 * i))
+                    font.set_strikethrough(condition.check(game.can_list))
+                    screen.blit(font.render(condition.text_cb(game.can_list), True, (0, 0, 0)), (screen.width - clip_board_image.width, 130 + 50 * i))
         else:
             # Draw end-of-match score here
             screen.fill("Black")
