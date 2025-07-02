@@ -235,13 +235,13 @@ def main():
 
     can_image = pygame.image.load("assets/images/can.png")
 
-    level_0 = Level(6, 5, 3,
+    level_0 = Level(6, 60, 3,
                     builder_conditions=[Condition(lambda c_list: sum(c[0].position.y < 150 for c in c_list) <= 3, lambda c_list: "Have at most 3x \n cans touching the floor")],
                     shooter_conditions=[Condition(lambda c_list: all(c[0].position.y < 0 for c in c_list), lambda c_list: "Shoot all cans off the table")]
                     )
     game.add_level(level_0)
 
-    level_1 = Level(10, 5, 5,
+    level_1 = Level(10, 90, 5,
                     builder_conditions=[Condition(lambda c_list: max(c[0].position.y for c in c_list) >= 260, lambda c_list: "Stack 4x cans on \n top of each other")],
                     shooter_conditions=[Condition(lambda c_list: sum(c[0].position.y < 0 for c in c_list) == 2, lambda c_list: "Leave 2x Cans on the table")]
                     )
