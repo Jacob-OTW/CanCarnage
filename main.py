@@ -6,8 +6,6 @@ import pymunk.pygame_util
 import random
 import math
 
-from pymunk.examples.platformer import width
-
 pygame.init()
 screen = pygame.display.set_mode((1000, 700))
 
@@ -37,6 +35,9 @@ class GameSingleton:
         self.space = space
         self.slingshot = slingshot
 
+        self.p1_score = 0
+        self.p2_score = 0
+
         self.builder_mode_enabled = True
         self.builder_mode_timer = None
         self.builder_mode_max_time = 20 # In seconds
@@ -52,14 +53,17 @@ class GameSingleton:
 
     def update(self, slingshot):
         if self.builder_mode_enabled and self.builder_mode_timer is not None:
-            if time.time() - self.builder_mode_timer >= self.builder_mode_max_time:
+            if self.active_level is not None and time.time() - self.builder_mode_timer >= self.builder_mode_max_time:
+                self.p1_score += sum(condition.check(self.can_list) for condition in self.active_level.builder_conditions)
+
                 self.builder_mode_enabled = False
                 self.builder_mode_timer = None
 
                 self.shooter_mode_enabled = True
                 self.shooter_ammo = self.active_level.shooter_ammo
 
-        if self.shooter_mode_enabled and self.shooter_ammo <= 0 and slingshot.dyn_bird is None:
+        if self.active_level is not None and self.shooter_mode_enabled and self.shooter_ammo <= 0 and slingshot.dyn_bird is None:
+            self.p2_score += sum(condition.check(self.can_list) for condition in self.active_level.shooter_conditions)
             self.next_level()
 
     def build_timer_start(self):
@@ -243,7 +247,7 @@ def main():
 
     level_1 = Level(10, 90, 5,
                     builder_conditions=[Condition(lambda c_list: max(c[0].position.y for c in c_list) >= 260, lambda c_list: "Stack 4x cans on \n top of each other")],
-                    shooter_conditions=[Condition(lambda c_list: sum(c[0].position.y < 0 for c in c_list) == 2, lambda c_list: "Leave 2x Cans on the table")]
+                    shooter_conditions=[Condition(lambda c_list: sum(c[0].position.y > 0 for c in c_list) == 2, lambda c_list: "Leave 2x Cans on the table")]
                     )
     game.add_level(level_1)
 
@@ -346,6 +350,9 @@ def main():
         else:
             # Draw end-of-match score here
             screen.fill("Black")
+            score = font.render(f"{game.p1_score} (p1) vs {game.p2_score} (p2)", False, (255, 255, 255))
+            score_rect = score.get_rect(center=(pygame.Vector2(screen.size) / 2).xy)
+            screen.blit(score, score_rect.topleft)
 
         pygame.display.flip()
         clock.tick(50)
